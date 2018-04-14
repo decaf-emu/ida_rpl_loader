@@ -44,11 +44,8 @@ struct LoadedFile
    Elf32_Ehdr ehdr;
    qvector<LoadedSection> sections;
 
-   ea_t import_base_address;
-   segment_t extern_segm;
-
-   uval_t sda_base;
-   uval_t sda2_base;
+   ea_t importsBaseAddress;
+   segment_t externSegm;
 };
 
 static bool
@@ -217,16 +214,16 @@ loadSectionData(linput_t *li,
 
    if (shdr.sh_flags & SHF_RPL_DEFLATED) {
       // Read deflated size
-      uint32 deflatedSize;
+      auto deflatedSize = uint32 { 0 };
       lread4bytes(li, &deflatedSize, true);
       data.resize(deflatedSize);
 
       // Read inflated data
-      qvector<char> inflatedData;
+      auto inflatedData = qvector<char> { };
       inflatedData.resize(shdr.sh_size - 4);
       qlread(li, &inflatedData[0], inflatedData.size());
 
-      size_t decompressedSize =
+      auto decompressedSize =
          tinfl_decompress_mem_to_mem(&data[0], data.size(),
                                      &inflatedData[0], inflatedData.size(),
                                      TINFL_FLAG_PARSE_ZLIB_HEADER);
@@ -249,12 +246,12 @@ static void
 loadSections(linput_t *li,
              LoadedFile &file)
 {
-   range_t import_range;
-   import_range.start_ea = 0xFFFFFFFF;
-   import_range.end_ea = 0;
+   range_t importRange;
+   importRange.start_ea = 0xFFFFFFFF;
+   importRange.end_ea = 0;
 
-   file.extern_segm.start_ea = 0;
-   file.extern_segm.end_ea = 0;
+   file.externSegm.start_ea = 0;
+   file.externSegm.end_ea = 0;
 
    file.sections.resize(file.ehdr.e_shnum);
 
@@ -275,12 +272,12 @@ loadSections(linput_t *li,
          auto section_start = section.shdr.sh_addr;
          auto section_end = section_start + section.data.size();
 
-         if (section_start < import_range.start_ea) {
-            import_range.start_ea = section_start;
+         if (section_start < importRange.start_ea) {
+            importRange.start_ea = section_start;
          }
 
-         if (section_end > import_range.end_ea) {
-            import_range.end_ea = static_cast<ea_t>(section_end);
+         if (section_end > importRange.end_ea) {
+            importRange.end_ea = static_cast<ea_t>(section_end);
          }
 
          section.importNode.create();
@@ -295,19 +292,19 @@ loadSections(linput_t *li,
          (section.shdr.sh_flags & SHF_EXECINSTR)) {
          auto section_end = section.shdr.sh_addr + section.data.size();
 
-         if (file.extern_segm.start_ea < section_end) {
-            file.extern_segm.start_ea = static_cast<ea_t>(section_end);
+         if (file.externSegm.start_ea < section_end) {
+            file.externSegm.start_ea = static_cast<ea_t>(section_end);
          }
       }
    }
 
-   if (import_range.start_ea != 0xFFFFFFFF) {
-      file.extern_segm.start_ea = (file.extern_segm.start_ea + 7) & ~7;
-      file.extern_segm.end_ea = file.extern_segm.start_ea + import_range.size();
-      file.import_base_address = import_range.start_ea;
+   if (importRange.start_ea != 0xFFFFFFFF) {
+      file.externSegm.start_ea = (file.externSegm.start_ea + 7) & ~7;
+      file.externSegm.end_ea = file.externSegm.start_ea + importRange.size();
+      file.importsBaseAddress = importRange.start_ea;
    } else {
-      file.extern_segm.start_ea = 0;
-      file.extern_segm.end_ea = 0;
+      file.externSegm.start_ea = 0;
+      file.externSegm.end_ea = 0;
    }
 }
 
@@ -424,19 +421,19 @@ addSegments(LoadedFile &file)
       }
    }
 
-   if (file.extern_segm.start_ea != 0 && file.extern_segm.size() != 0) {
+   if (file.externSegm.start_ea != 0 && file.externSegm.size() != 0) {
       // Add the extern segment
-      file.extern_segm.align = saRelQword;
-      file.extern_segm.comb = scPub;
-      file.extern_segm.perm = SEGPERM_READ | SEGPERM_EXEC;
-      file.extern_segm.bitness = 1;
-      file.extern_segm.flags = SFL_LOADER;
-      file.extern_segm.sel = 255;
-      file.extern_segm.type = SEG_XTRN;
-      file.extern_segm.color = DEFCOLOR;
+      file.externSegm.align = saRelQword;
+      file.externSegm.comb = scPub;
+      file.externSegm.perm = SEGPERM_READ | SEGPERM_EXEC;
+      file.externSegm.bitness = 1;
+      file.externSegm.flags = SFL_LOADER;
+      file.externSegm.sel = 255;
+      file.externSegm.type = SEG_XTRN;
+      file.externSegm.color = DEFCOLOR;
 
       set_selector(255, 0);
-      add_segm_ex(&file.extern_segm, ".externs", "XTRN", 0);
+      add_segm_ex(&file.externSegm, ".externs", "XTRN", 0);
    }
 }
 
@@ -475,12 +472,9 @@ loadRelocations(LoadedFile &file)
       auto relaNum = section.data.size() / sizeof(Elf32_Rela);
       auto relaArr = reinterpret_cast<Elf32_Rela *>(&section.data[0]);
       for (auto j = 0u; j < relaNum; ++j) {
-         uint32 offset = swap32(relaArr[j].r_offset);
-         uint32 info = swap32(relaArr[j].r_info);
-         int32 addend = swap32(relaArr[j].r_addend);
-
-         uint32 symIndex = ELF32_R_SYM(info);
-         uint32 relType = ELF32_R_TYPE(info);
+         auto info = swap32(relaArr[j].r_info);
+         auto symIndex = ELF32_R_SYM(info);
+         auto relType = ELF32_R_TYPE(info);
 
          if (relType == R_PPC_NONE) {
             continue;
@@ -488,13 +482,18 @@ loadRelocations(LoadedFile &file)
 
          Elf32_Sym symbol;
          if (!getSymbol(symSec, symIndex, symbol)) {
-            loader_failure("Failed to get symbol %u for relcation %u in section %u", symIndex, j, i);
+            loader_failure(
+               "Failed to get symbol %u for relcation %u in section %u",
+               symIndex, j, i);
          }
 
-         uint32 relAddr = symbol.st_value + addend;
-
+         auto offset = swap32(relaArr[j].r_offset);
+         auto addend = static_cast<int32_t>(
+            swap32(static_cast<uint32_t>(relaArr[j].r_addend)));
+         auto relAddr = symbol.st_value + addend;
          if (symbol.st_value & 0xC0000000) {
-            relAddr = (relAddr - file.import_base_address) + file.extern_segm.start_ea;
+            relAddr = (relAddr - file.importsBaseAddress)
+                      + file.externSegm.start_ea;
          }
 
          switch (relType) {
@@ -512,8 +511,9 @@ loadRelocations(LoadedFile &file)
             break;
          case R_PPC_REL24:
          {
-            auto oval = get_original_dword(offset);
-            patch_dword(offset, (oval & ~0x03fffffc) | ((relAddr - offset) & 0x03fffffc));
+            auto value = get_original_dword(offset) & ~0x03fffffc;
+            value |= ((relAddr - offset) & 0x03fffffc);
+            patch_dword(offset, value);
             break;
          }
          case R_PPC_DTPREL32:
@@ -552,7 +552,8 @@ loadSymbols(LoadedFile &file)
 
          if (type == STT_FUNC || type == STT_OBJECT) {
             if (symSec.shdr.sh_type == SHT_RPL_IMPORTS) {
-               addr = (addr - file.import_base_address) + file.extern_segm.start_ea;
+               addr = (addr - file.importsBaseAddress)
+                      + file.externSegm.start_ea;
                symSec.importNode.supset(addr, name);
             }
          }
@@ -607,13 +608,13 @@ loadExports(LoadedFile &file)
 
       // Name is .fexports for functions and .dexports for data
       auto isFunctionExport = (shStrTab[section.shdr.sh_name + 1] == 'f');
-
       auto numExports = swap32(*(uint32 *)&section.data[0]);
       for (auto j = 0u; j < numExports; ++j) {
          if (isFunctionExport) {
             auto offset = (j * 8) + 8;
             auto addr = swap32(*(uint32 *)&section.data[offset + 0]);
-            auto name_offset = swap32(*(uint32 *)&section.data[offset + 4]) & ~EXN_RPL_TLS;
+            auto name_offset = swap32(*(uint32 *)&section.data[offset + 4])
+                               & ~EXN_RPL_TLS;
 
             // Create entry point
             auto_make_proc(addr);
@@ -626,22 +627,22 @@ loadExports(LoadedFile &file)
 static void
 setSdaBase(LoadedFile &file)
 {
-   uval_t sda_base = 0xFFFFFFFF;
-   uval_t sda2_base = 0xFFFFFFFF;
+   uval_t sdaBase = 0xFFFFFFFF;
+   uval_t sda2Base = 0xFFFFFFFF;
    qvector<char> &shStrTab = file.sections[file.ehdr.e_shstrndx].data;
 
    for (auto i = 0u; i < file.sections.size(); ++i) {
       auto &section = file.sections[i];
 
       if (strcmp(&shStrTab[section.shdr.sh_name], ".sdata") == 0) {
-         sda_base = section.shdr.sh_addr + 0x8000;
+         sdaBase = section.shdr.sh_addr + 0x8000;
       } else if (strcmp(&shStrTab[section.shdr.sh_name], ".sdata2") == 0) {
-         sda2_base = section.shdr.sh_addr + 0x8000;
+         sda2Base = section.shdr.sh_addr + 0x8000;
       }
    }
 
-   ph.set_idp_options("PPC_SDA_BASE", IDPOPT_NUM, &sda_base);
-   ph.set_idp_options("PPC_TOC", IDPOPT_NUM, &sda2_base);
+   ph.set_idp_options("PPC_SDA_BASE", IDPOPT_NUM, &sdaBase);
+   ph.set_idp_options("PPC_TOC", IDPOPT_NUM, &sda2Base);
 }
 
 static void
@@ -673,10 +674,10 @@ setCompilerOptions()
 }
 
 static int idaapi
-accept_file(qstring *fileformatname, /* [out] */
-            qstring *processor,      /* [out] */
-            linput_t *li,
-            const char *filename)
+acceptFile(qstring *fileformatname, /* [out] */
+           qstring *processor,      /* [out] */
+           linput_t *li,
+           const char *filename)
 {
    Elf32_Ehdr ehdr;
    qstring errorMsg;
@@ -690,9 +691,9 @@ accept_file(qstring *fileformatname, /* [out] */
 }
 
 static void idaapi
-load_file(linput_t *li,
-          ushort neflags,
-          const char *fileformatname)
+loadFile(linput_t *li,
+         ushort neflags,
+         const char *fileformatname)
 {
    LoadedFile file;
    qstring errorMsg;
@@ -720,8 +721,8 @@ loader_t ida_module_data LDSC =
 {
   IDP_INTERFACE_VERSION,
   0, // flags
-  accept_file,
-  load_file,
+  acceptFile,
+  loadFile,
   NULL, // save_file
   NULL, // move_segm
   NULL, // process_archive
