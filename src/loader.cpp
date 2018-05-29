@@ -4,6 +4,8 @@
 #include <elf/elfbase.h>
 #include <elf/elfr_ppc.h>
 
+#include <set>
+
 extern "C" {
 #define TINFL_HEADER_FILE_ONLY
 #include "tinfl.c"
@@ -465,6 +467,8 @@ getSymbol(LoadedSection &section,
 static void
 loadRelocations(LoadedFile &file)
 {
+   std::set<uint32_t> unsupported;
+
    for (auto i = 0u; i < file.sections.size(); ++i) {
       auto &section = file.sections[i];
       if (section.shdr.sh_type != SHT_RELA) {
@@ -537,7 +541,10 @@ loadRelocations(LoadedFile &file)
             break;
          }
          default:
-            msg("Unsupported relocation type %u", relType);
+            if (!unsupported.count(relType)) {
+               msg("Unsupported relocation type %u\n", relType);
+               unsupported.insert(relType);
+            }
          }
       }
    }
