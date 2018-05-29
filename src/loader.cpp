@@ -267,6 +267,10 @@ loadSections(linput_t *li,
          continue;
       }
 
+      if (!loadSectionData(li, section.shdr, section.data)) {
+         loader_failure("Failed to load section %u data", i);
+      }
+
       // Create an import node for an import section
       if (section.shdr.sh_type == SHT_RPL_IMPORTS) {
          auto section_start = section.shdr.sh_addr;
@@ -281,10 +285,6 @@ loadSections(linput_t *li,
          }
 
          section.importNode.create();
-      }
-
-      if (!loadSectionData(li, section.shdr, section.data)) {
-         loader_failure("Failed to load section %u data", i);
       }
 
       // Find the last code section to place the import section after
