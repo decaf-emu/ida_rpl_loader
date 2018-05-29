@@ -568,6 +568,10 @@ loadSymbols(LoadedFile &file)
             continue;
          }
 
+         if (sym.st_shndx >= SHN_LORESERVE) {
+            continue;
+         }
+
          auto binding = ELF_ST_BIND(sym.st_info);
          auto type = ELF_ST_TYPE(sym.st_info);
          auto &symSec = file.sections[sym.st_shndx];
