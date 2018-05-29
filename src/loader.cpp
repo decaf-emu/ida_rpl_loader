@@ -638,16 +638,17 @@ loadExports(LoadedFile &file)
       auto isFunctionExport = (shStrTab[section.shdr.sh_name + 1] == 'f');
       auto numExports = swap32(*(uint32 *)&section.data[0]);
       for (auto j = 0u; j < numExports; ++j) {
-         if (isFunctionExport) {
-            auto offset = (j * 8) + 8;
-            auto addr = swap32(*(uint32 *)&section.data[offset + 0]);
-            auto name_offset = swap32(*(uint32 *)&section.data[offset + 4])
-                               & ~EXN_RPL_TLS;
+         auto offset = (j * 8) + 8;
+         auto addr = swap32(*(uint32 *)&section.data[offset + 0]);
+         auto name_offset = swap32(*(uint32 *)&section.data[offset + 4])
+                            & ~EXN_RPL_TLS;
 
+         if (isFunctionExport) {
             // Create entry point
             auto_make_proc(addr);
-            add_entry(addr, addr, &section.data[name_offset], true);
          }
+
+         add_entry(addr, addr, &section.data[name_offset], true);
       }
    }
 }
