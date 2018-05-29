@@ -30,6 +30,11 @@ extern "C" {
 // Export SHT_RPL_EXPORTS name TLS flag
 #define EXN_RPL_TLS        0x80000000
 
+// GHS custom relocation types
+#define R_PPC_GHS_REL16_HA 251
+#define R_PPC_GHS_REL16_HI 252
+#define R_PPC_GHS_REL16_LO 253
+
 struct LoadedSection
 {
    Elf32_Shdr shdr;
@@ -519,6 +524,18 @@ loadRelocations(LoadedFile &file)
          case R_PPC_DTPREL32:
             patch_dword(offset, relAddr);
             break;
+         case R_PPC_GHS_REL16_HI:
+         {
+            auto value = (relAddr - offset) >> 16;
+            patch_word(offset, value);
+            break;
+         }
+         case R_PPC_GHS_REL16_LO:
+         {
+            auto value = (relAddr - offset) & 0xffff;
+            patch_word(offset, value);
+            break;
+         }
          default:
             msg("Unsupported relocation type %u", relType);
          }
