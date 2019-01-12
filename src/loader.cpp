@@ -381,7 +381,9 @@ addSegments(LoadedFile &file)
       segm.perm = SEGPERM_READ;
 
       if (shdr.sh_flags & SHF_WRITE) {
-         segm.perm |= SEGPERM_WRITE;
+         if (strcmp(name, ".rodata")) {
+            segm.perm |= SEGPERM_WRITE;
+         }
       }
 
       if (shdr.sh_flags & SHF_EXECINSTR) {
